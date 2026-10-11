@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - CITY_NAME=Metro Water District
+      - CITY_CENTER_LAT=30.2672
+      - CITY_CENTER_LNG=-97.7431
+      - DATABASE_URL=sqlite:///./water_leak.db
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
