@@ -59,7 +59,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Row of Operational KPI Stat Boxes */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div className="stat-box stat-box-blue">
           <div className="stat-box-label">Total alerts</div>
           <div className="stat-box-value-container">
@@ -86,15 +86,6 @@ export default function AnalyticsPage() {
           <div className="stat-box-value-container">
             <div className="stat-box-value">
               {kpis.avg_response_time_minutes ?? 0} <span className="text-xs font-normal text-[#5b6b7b]">min</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="stat-box stat-box-amber">
-          <div className="stat-box-label">Avg repair</div>
-          <div className="stat-box-value-container">
-            <div className="stat-box-value">
-              {kpis.avg_repair_time_minutes ?? 0} <span className="text-xs font-normal text-[#5b6b7b]">min</span>
             </div>
           </div>
         </div>
