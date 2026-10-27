@@ -38,6 +38,11 @@ class Alert(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     sensor_id = Column(String(50), ForeignKey("sensors.id"), nullable=False)
     confidence = Column(Float, nullable=False)
+    cnn_confidence = Column(Float, nullable=True)
+    yolo_confidence = Column(Float, nullable=True)
+    fused_confidence = Column(Float, nullable=True)
+    yolo_boxes = Column(Text, nullable=True)
+    spectrogram_image = Column(Text, nullable=True)
     # Valid workflow statuses: notified -> on_work -> work_done -> cleared
     status = Column(String(30), default="notified", index=True)
     assigned_team_id = Column(String(50), ForeignKey("teams.id"), nullable=True)

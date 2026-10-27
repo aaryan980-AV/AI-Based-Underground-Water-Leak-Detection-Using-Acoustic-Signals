@@ -1,22 +1,9 @@
 import React, { useState } from 'react';
-import { 
-  AlertTriangle, 
-  CheckCircle2, 
-  Clock, 
-  Wrench, 
-  Navigation, 
-  ChevronDown, 
-  ChevronUp, 
-  Check, 
-  Phone, 
-  History,
-  ShieldCheck,
-  UserCheck
-} from 'lucide-react';
-import { soundAlert } from '../utils/audioAlert';
+import { formatDate, formatConfidence } from '../utils/format';
 
 export default function AlertPanel({
   alerts = [],
+  teams = [],
   activeFilter = 'active',
   setActiveFilter,
   onUpdateStatus,
@@ -24,8 +11,39 @@ export default function AlertPanel({
 }) {
   const [expandedAlerts, setExpandedAlerts] = useState({});
 
-  const toggleExpand = (id) => {
+  const toggleHistory = (id) => {
     setExpandedAlerts(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const getEffectiveTeam = (alert) => {
+    if (alert.assigned_team) return alert.assigned_team;
+    if (!alert.sensor_lat || !alert.sensor_lng || !teams || teams.length === 0) return null;
+    let minD = Infinity;
+    let closest = null;
+    for (const t of teams) {
+      const d = Math.hypot(t.lat - alert.sensor_lat, t.lng - alert.sensor_lng);
+      if (d < minD) {
+        minD = d;
+        closest = t;
+      }
+    }
+    return closest;
+  };
+
+  const getEffectiveDistanceAndEta = (alert, team) => {
+    if (alert.distance_km && alert.eta_minutes) {
+      return { dist: alert.distance_km, eta: alert.eta_minutes };
+    }
+    if (!team || !alert.sensor_lat || !alert.sensor_lng) {
+      return { dist: null, eta: null };
+    }
+    const R = 6371;
+    const dLat = (team.lat - alert.sensor_lat) * Math.PI / 180;
+    const dLng = (team.lng - alert.sensor_lng) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(alert.sensor_lat * Math.PI / 180) * Math.cos(team.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    const distKm = Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(a))) * 1000) / 1000;
+    const etaMin = Math.round(((distKm / 35.0) * 60 + 5) * 10) / 10;
+    return { dist: distKm, eta: etaMin };
   };
 
   const filteredAlerts = alerts.filter(a => {
@@ -34,259 +52,337 @@ export default function AlertPanel({
     return true;
   });
 
-  const getWorkflowStep = (status) => {
+  const getStatusBadge = (status) => {
     switch (status) {
-      case 'notified': return 1;
-      case 'on_work': return 2;
-      case 'work_done': return 3;
-      case 'cleared': return 4;
-      default: return 1;
+      case 'notified':
+        return <span className="badge-status badge-notified">Team notified</span>;
+      case 'on_work':
+        return <span className="badge-status badge-onwork">On work</span>;
+      case 'work_done':
+        return <span className="badge-status badge-workdone">Work done</span>;
+      case 'cleared':
+        return <span className="badge-status badge-normal">Cleared</span>;
+      default:
+        return <span className="badge-status badge-leak">{status}</span>;
     }
   };
 
-  const getNextActionConfig = (status) => {
+  const getAlertRowClass = (status) => {
     switch (status) {
       case 'notified':
-        return {
-          nextStatus: 'on_work',
-          label: 'Begin Work (On Work)',
-          color: 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30 text-white',
-        };
+        return 'status-notified';
       case 'on_work':
-        return {
-          nextStatus: 'work_done',
-          label: 'Mark Repaired (Work Done)',
-          color: 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30 text-white',
-        };
+        return 'status-onwork';
       case 'work_done':
-        return {
-          nextStatus: 'cleared',
-          label: 'Clear Alert & Free Team',
-          color: 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30 text-white',
-        };
+        return 'status-workdone';
+      case 'cleared':
+        return 'status-cleared';
       default:
-        return null;
+        return 'status-leak';
     }
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#111827]/95 border border-white/10 rounded-2xl shadow-xl overflow-hidden backdrop-blur-md">
-      
-      {/* Header & Tabs */}
-      <div className="p-4 border-b border-white/10 flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-rose-500" />
-            <span>Incident Alert Feed</span>
-          </h2>
-          <p className="text-xs text-gray-400">Real-time leak queue & dispatch management</p>
+    <div className="flex flex-col h-full bg-white border border-[#dbe3ea] rounded-md overflow-hidden shadow-sm">
+      {/* Panel Header */}
+      <div className="px-4 py-3 bg-[#f4f8fb] border-b border-[#dbe3ea] flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-sm text-[#0a3d62]">Alert Feed</span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-[#e6f2fb] text-[#0b6fb8] font-bold">
+            {filteredAlerts.length}
+          </span>
         </div>
 
-        {/* Filter Pills */}
-        <div className="flex items-center p-1 bg-gray-900 rounded-xl border border-white/5 text-xs font-semibold">
+        {/* Filter Tabs */}
+        <div className="flex items-center gap-1 text-xs">
           <button
             onClick={() => setActiveFilter('active')}
-            className={`px-3 py-1 rounded-lg transition-all ${
+            className={`px-2.5 py-1 rounded text-xs transition font-medium ${
               activeFilter === 'active'
-                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold'
-                : 'text-gray-400 hover:text-white'
+                ? 'bg-white text-[#0a3d62] border border-[#dbe3ea] font-bold shadow-xs'
+                : 'text-[#5b6b7b] hover:text-[#0a3d62]'
             }`}
           >
             Active ({alerts.filter(a => a.status !== 'cleared').length})
           </button>
           <button
             onClick={() => setActiveFilter('resolved')}
-            className={`px-3 py-1 rounded-lg transition-all ${
+            className={`px-2.5 py-1 rounded text-xs transition font-medium ${
               activeFilter === 'resolved'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold'
-                : 'text-gray-400 hover:text-white'
+                ? 'bg-white text-[#0a3d62] border border-[#dbe3ea] font-bold shadow-xs'
+                : 'text-[#5b6b7b] hover:text-[#0a3d62]'
             }`}
           >
             Resolved ({alerts.filter(a => a.status === 'cleared').length})
           </button>
+          <button
+            onClick={() => setActiveFilter('all')}
+            className={`px-2.5 py-1 rounded text-xs transition font-medium ${
+              activeFilter === 'all'
+                ? 'bg-white text-[#0a3d62] border border-[#dbe3ea] font-bold shadow-xs'
+                : 'text-[#5b6b7b] hover:text-[#0a3d62]'
+            }`}
+          >
+            All
+          </button>
         </div>
       </div>
 
-      {/* Alert Cards List */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      {/* Alert List Rows */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
         {filteredAlerts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 text-center text-gray-500 px-4">
-            <ShieldCheck className="w-10 h-10 text-emerald-500/60 mb-2" />
-            <p className="text-sm font-semibold text-gray-300">
-              {activeFilter === 'active' ? 'No Active Leak Alerts' : 'No Resolved Incidents'}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">
-              {activeFilter === 'active'
-                ? 'All acoustic nodes are reporting normal pressure signatures.'
-                : 'Resolved historical records will display here.'}
-            </p>
+          <div className="py-12 text-center text-[#5b6b7b] text-xs">
+            {activeFilter === 'active' ? 'No active alerts currently detected' : 'No alerts recorded'}
           </div>
         ) : (
           filteredAlerts.map((alert) => {
-            const step = getWorkflowStep(alert.status);
-            const actionConfig = getNextActionConfig(alert.status);
             const isExpanded = !!expandedAlerts[alert.id];
+            const rowClass = getAlertRowClass(alert.status);
 
             return (
               <div
                 key={alert.id}
-                className={`rounded-xl border transition-all ${
-                  alert.status === 'cleared'
-                    ? 'bg-gray-900/40 border-white/5 opacity-80'
-                    : 'bg-gray-900/90 border-rose-500/30 shadow-lg shadow-rose-950/20'
-                }`}
+                className={`alert-row ${rowClass}`}
               >
-                {/* Main Card Content */}
-                <div className="p-3.5 space-y-3">
-                  
-                  {/* Top Bar: Sensor ID & Confidence */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-extrabold text-sm text-cyan-400 font-mono">
-                          {alert.sensor_id}
-                        </span>
-                        <span className="text-xs text-gray-300 font-semibold truncate max-w-[170px]">
-                          {alert.sensor_name}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1.5">
-                        <Clock className="w-3 h-3 text-gray-500" />
-                        <span>{new Date(alert.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                        <span>•</span>
-                        <span>{alert.sensor_lat?.toFixed(3)}, {alert.sensor_lng?.toFixed(3)}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col items-end gap-1">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-black ${
-                        alert.status === 'cleared'
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse'
-                      }`}>
-                        {Math.round(alert.confidence * 100)}% Leak Prob
-                      </span>
-
-                      <button
-                        onClick={() => onFocusAlert && onFocusAlert(alert)}
-                        className="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 underline underline-offset-2"
-                      >
-                        <Navigation className="w-2.5 h-2.5" />
-                        <span>Zoom</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Nearest Team Dispatch Info */}
-                  {alert.assigned_team ? (
-                    <div className="p-2.5 rounded-lg bg-gray-950/70 border border-white/5 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-                          <Wrench className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <div className="font-bold text-gray-200">{alert.assigned_team.name}</div>
-                          <div className="text-[10px] text-gray-400 flex items-center gap-2">
-                            <span>{alert.distance_km} km away</span>
-                            <span>•</span>
-                            <span className="text-amber-400 font-semibold">ETA ~{alert.eta_minutes}m</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <a
-                        href={`tel:${alert.assigned_team.phone}`}
-                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition"
-                        title={alert.assigned_team.phone}
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                  ) : (
-                    <div className="p-2 rounded bg-gray-800/40 text-[11px] text-amber-400">
-                      No maintenance unit currently available for assignment.
-                    </div>
-                  )}
-
-                  {/* Workflow Stepper Indicator */}
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
-                      <span className={step >= 1 ? 'text-cyan-400' : ''}>Notified</span>
-                      <span className={step >= 2 ? 'text-amber-400' : ''}>On Work</span>
-                      <span className={step >= 3 ? 'text-blue-400' : ''}>Work Done</span>
-                      <span className={step >= 4 ? 'text-emerald-400' : ''}>Cleared</span>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-1.5 h-1.5">
-                      <div className={`rounded-full ${step >= 1 ? 'bg-cyan-500' : 'bg-gray-800'}`} />
-                      <div className={`rounded-full ${step >= 2 ? 'bg-amber-500' : 'bg-gray-800'}`} />
-                      <div className={`rounded-full ${step >= 3 ? 'bg-blue-500' : 'bg-gray-800'}`} />
-                      <div className={`rounded-full ${step >= 4 ? 'bg-emerald-500' : 'bg-gray-800'}`} />
-                    </div>
-                  </div>
-
-                  {/* Next Step Action Button */}
-                  {actionConfig && (
-                    <button
-                      onClick={() => {
-                        if (actionConfig.nextStatus === 'cleared') {
-                          soundAlert.playSuccessSound();
-                        }
-                        onUpdateStatus(alert.id, actionConfig.nextStatus);
-                      }}
-                      className={`w-full py-2 px-3 rounded-lg text-xs font-bold shadow-md transition-all flex items-center justify-center gap-1.5 hover:scale-[1.01] active:scale-[0.99] ${actionConfig.color}`}
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>{actionConfig.label}</span>
-                    </button>
-                  )}
-
-                  {/* Toggle Timeline Log */}
-                  <div className="pt-1 flex items-center justify-between text-[11px] text-gray-400">
-                    <button
-                      onClick={() => toggleExpand(alert.id)}
-                      className="flex items-center gap-1 hover:text-white transition"
-                    >
-                      <History className="w-3 h-3" />
-                      <span>Status Timeline ({alert.events?.length || 0})</span>
-                      {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    </button>
-
-                    <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-gray-800 text-gray-300">
-                      {alert.status_label}
+                {/* Header line: IDs, Status, Confidence */}
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-[#0a3d62]">
+                      #{String(alert.id).padStart(3, '0')}
                     </span>
+                    <span className="font-semibold text-[#0b6fb8]">
+                      Sensor {alert.sensor_id}
+                    </span>
+                    {getStatusBadge(alert.status)}
                   </div>
 
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] font-bold text-[#d64545] bg-[#fdecec] px-1.5 py-0.5 rounded">
+                      {formatConfidence(alert.confidence)}
+                    </span>
+                    {onFocusAlert && (
+                      <button
+                        onClick={() => onFocusAlert(alert)}
+                        className="text-[#0b6fb8] hover:underline text-[11px] font-semibold"
+                        title="Focus on map"
+                      >
+                        Locate
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Expandable Timeline Log */}
-                {isExpanded && alert.events && (
-                  <div className="p-3 bg-gray-950/80 border-t border-white/5 space-y-2 text-xs">
-                    {alert.events.map((ev) => (
-                      <div key={ev.id} className="flex items-start gap-2 text-[11px]">
-                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-1.5 shrink-0" />
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold text-gray-200">
-                              {ev.to_status.replace('_', ' ').toUpperCase()}
-                            </span>
-                            <span className="text-gray-500 text-[10px]">
-                              {new Date(ev.timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                          {ev.note && <p className="text-gray-400 mt-0.5">{ev.note}</p>}
-                        </div>
-                      </div>
-                    ))}
+                {/* Location and Detected time */}
+                <div className="text-xs text-[#5b6b7b] space-y-0.5 mb-2">
+                  <div className="truncate text-[#1c2b39] font-medium">
+                    {alert.sensor_name || `Sensor Location ${alert.sensor_id}`}
+                  </div>
+                  <div className="text-[11px]">
+                    Detected: {formatDate(alert.created_at)}
+                  </div>
+                </div>
+
+                {/* Hybrid CNN + YOLO Confidence Scores */}
+                <div className="grid grid-cols-3 gap-1 mb-2 text-center text-[10px]">
+                  <div className="bg-[#f4f8fb] border border-[#dbe3ea] rounded py-1 px-1">
+                    <div className="text-[#5b6b7b] text-[9px] font-semibold uppercase tracking-tight">CNN Conf</div>
+                    <div className="font-mono font-bold text-[#0b6fb8]">
+                      {alert.cnn_confidence != null ? `${Math.round(alert.cnn_confidence * 100)}%` : formatConfidence(alert.confidence)}
+                    </div>
+                  </div>
+                  <div className="bg-[#f4f8fb] border border-[#dbe3ea] rounded py-1 px-1">
+                    <div className="text-[#5b6b7b] text-[9px] font-semibold uppercase tracking-tight">YOLO Conf</div>
+                    <div className="font-mono font-bold text-[#139a9a]">
+                      {alert.yolo_confidence != null && alert.yolo_confidence > 0
+                        ? `${Math.round(alert.yolo_confidence * 100)}%`
+                        : (alert.yolo_detections && alert.yolo_detections.length > 0 ? `${Math.round(alert.yolo_detections[0].confidence * 100)}%` : 'No box')}
+                    </div>
+                  </div>
+                  <div className="bg-[#fdecec] border border-[#f5c6cb] rounded py-1 px-1">
+                    <div className="text-[#721c24] text-[9px] font-semibold uppercase tracking-tight">Fused Conf</div>
+                    <div className="font-mono font-bold text-[#d64545]">
+                      {alert.fused_confidence != null ? `${Math.round(alert.fused_confidence * 100)}%` : formatConfidence(alert.confidence)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Spectrogram with YOLO Bounding Boxes */}
+                {alert.spectrogram_image && (
+                  <div className="mb-2.5 rounded border border-[#dbe3ea] overflow-hidden bg-slate-900">
+                    <div className="flex items-center justify-between px-2 py-1 bg-[#1e293b] text-[10px] text-[#94a3b8]">
+                      <span className="font-semibold text-white">Mel Spectrogram & YOLO Box</span>
+                      <span className="font-mono text-[#38bdf8]">
+                        {alert.yolo_detections?.length || 0} box(es)
+                      </span>
+                    </div>
+                    <img
+                      src={alert.spectrogram_image}
+                      alt={`Spectrogram Alert #${alert.id}`}
+                      className="w-full h-auto object-contain block max-h-[140px] mx-auto"
+                      loading="lazy"
+                    />
                   </div>
                 )}
 
+                {/* Assigned Team & Dispatch Info */}
+                {(() => {
+                  const effectiveTeam = getEffectiveTeam(alert);
+                  const { dist, eta } = getEffectiveDistanceAndEta(alert, effectiveTeam);
+                  return (
+                    <div className="bg-white border border-[#dbe3ea] rounded p-2 text-xs mb-2.5">
+                      <div className="flex items-center justify-between text-[#1c2b39]">
+                        <span className="font-medium text-[#0a3d62]">
+                          {effectiveTeam?.name || 'Searching nearest response unit...'}
+                        </span>
+                        {effectiveTeam?.phone && (
+                          <span className="text-[11px] text-[#5b6b7b] font-mono">
+                            {effectiveTeam.phone}
+                          </span>
+                        )}
+                      </div>
+                      {effectiveTeam && (
+                        <div className="text-[11px] text-[#5b6b7b] mt-1.5 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[#0b6fb8] font-medium">Dist: {dist ?? 'N/A'} km</span>
+                            <span>•</span>
+                            <span className="text-[#139a9a] font-medium">ETA: {eta ?? 'N/A'} min</span>
+                          </div>
+                          {alert.sensor_lat && alert.sensor_lng && effectiveTeam.lat && effectiveTeam.lng && (
+                            <a
+                              href={`https://www.google.com/maps/dir/?api=1&origin=${effectiveTeam.lat},${effectiveTeam.lng}&destination=${alert.sensor_lat},${alert.sensor_lng}&travelmode=driving`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[#0b6fb8] hover:text-[#0a3d62] font-semibold flex items-center gap-1 hover:underline text-[10px]"
+                              title="Open driving directions in Google Maps"
+                            >
+                              Google Route ↗
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Workflow Buttons: "Team notified" blue, "On work" amber, "Work done" teal, "Clear alert" green. Currently active step is filled, others outlined */}
+                <div className="grid grid-cols-4 gap-1 pt-1">
+                  {/* Button 1: Team notified (Blue) */}
+                  <button
+                    disabled
+                    title="Alert registered and maintenance team notified"
+                    className={`text-[10px] sm:text-[11px] py-1 px-1 rounded font-semibold text-center transition ${
+                      alert.status === 'notified'
+                        ? 'bg-[#0b6fb8] text-white border border-[#0b6fb8]'
+                        : 'bg-white text-[#0b6fb8] border border-[#0b6fb8] opacity-70'
+                    }`}
+                  >
+                    Notified
+                  </button>
+
+                  {/* Button 2: On work (Amber) */}
+                  <button
+                    onClick={() => onUpdateStatus(alert.id, 'on_work')}
+                    disabled={alert.status !== 'notified'}
+                    title={alert.status === 'notified' ? 'Click to mark as On Work' : 'Work in progress'}
+                    className={`text-[10px] sm:text-[11px] py-1 px-1 rounded font-semibold text-center transition ${
+                      alert.status === 'on_work'
+                        ? 'bg-[#e69a14] text-white border border-[#e69a14]'
+                        : alert.status === 'notified'
+                        ? 'bg-white text-[#e69a14] border border-[#e69a14] hover:bg-[#fff4dc] cursor-pointer'
+                        : 'bg-white text-[#e69a14] border border-[#e69a14] opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    On work
+                  </button>
+
+                  {/* Button 3: Work done (Teal) */}
+                  <button
+                    onClick={() => onUpdateStatus(alert.id, 'work_done')}
+                    disabled={alert.status !== 'on_work'}
+                    title={alert.status === 'on_work' ? 'Click to mark Work Done' : 'Work completed'}
+                    className={`text-[10px] sm:text-[11px] py-1 px-1 rounded font-semibold text-center transition ${
+                      alert.status === 'work_done'
+                        ? 'bg-[#139a9a] text-white border border-[#139a9a]'
+                        : alert.status === 'on_work'
+                        ? 'bg-white text-[#139a9a] border border-[#139a9a] hover:bg-[#e3f5f5] cursor-pointer'
+                        : 'bg-white text-[#139a9a] border border-[#139a9a] opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    Work done
+                  </button>
+
+                  {/* Button 4: Clear alert (Green) */}
+                  <button
+                    onClick={() => onUpdateStatus(alert.id, 'cleared')}
+                    disabled={alert.status !== 'work_done'}
+                    title={alert.status === 'work_done' ? 'Click to Clear Alert' : 'Alert resolution'}
+                    className={`text-[10px] sm:text-[11px] py-1 px-1 rounded font-semibold text-center transition ${
+                      alert.status === 'cleared'
+                        ? 'bg-[#2e9e5b] text-white border border-[#2e9e5b]'
+                        : alert.status === 'work_done'
+                        ? 'bg-white text-[#2e9e5b] border border-[#2e9e5b] hover:bg-[#e8f6ee] cursor-pointer'
+                        : 'bg-white text-[#2e9e5b] border border-[#2e9e5b] opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    Clear alert
+                  </button>
+                </div>
+
+                {/* History expander toggle */}
+                <div className="mt-2.5 pt-1.5 border-t border-[#dbe3ea] flex items-center justify-between text-[11px]">
+                  <button
+                    onClick={() => toggleHistory(alert.id)}
+                    className="text-[#0b6fb8] hover:underline font-medium"
+                  >
+                    {isExpanded ? 'Hide history' : `History (${alert.events?.length || 0})`}
+                  </button>
+                  <span className="text-[#5b6b7b] font-medium">
+                    Status: {alert.status === 'notified' ? '1/4 Notified' : alert.status === 'on_work' ? '2/4 On Work' : alert.status === 'work_done' ? '3/4 Work Done' : '4/4 Cleared'}
+                  </span>
+                </div>
+
+                {/* Timestamped event log */}
+                {isExpanded && (
+                  <div className="mt-2 pt-2 border-t border-[#dbe3ea]">
+                    <div className="text-[11px] font-semibold text-[#0a3d62] mb-1">
+                      Event Log:
+                    </div>
+                    {alert.events && alert.events.length > 0 ? (
+                      <table className="table-compact text-[11px]">
+                        <thead>
+                          <tr>
+                            <th className="py-1 px-1.5">Timestamp</th>
+                            <th className="py-1 px-1.5">Status</th>
+                            <th className="py-1 px-1.5">Note</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {alert.events.map((ev) => (
+                            <tr key={ev.id}>
+                              <td className="py-1 px-1.5 text-[#5b6b7b] whitespace-nowrap">
+                                {formatDate(ev.timestamp)}
+                              </td>
+                              <td className="py-1 px-1.5 font-medium whitespace-nowrap">
+                                {ev.to_status.replace('_', ' ')}
+                              </td>
+                              <td className="py-1 px-1.5 text-[#5b6b7b]">
+                                {ev.note || '-'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="text-[11px] text-[#5b6b7b]">No logged events</div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })
         )}
       </div>
-
     </div>
   );
 }
+

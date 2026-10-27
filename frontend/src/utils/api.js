@@ -126,4 +126,50 @@ export const api = {
     const res = await fetch(`${API_BASE}/analytics`);
     return res.json();
   },
+
+  // Real demo audio sample fetcher
+  getDemoSample: async (type = 'leak') => {
+    const res = await fetch(`${API_BASE}/samples/demo?type=${type}`);
+    if (!res.ok) throw new Error('Failed to load demo audio sample');
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : `${type}_sample.wav`;
+    return new File([blob], filename, { type: 'audio/wav' });
+  },
+
+  // Sensor alert history
+  getSensorAlerts: async (sensorId) => {
+    const res = await fetch(`${API_BASE}/sensors/${sensorId}/alerts`);
+    if (!res.ok) throw new Error('Failed to fetch sensor alert history');
+    return res.json();
+  },
+
+  // Team jobs
+  getTeamJobs: async (teamId) => {
+    const res = await fetch(`${API_BASE}/teams/${teamId}/jobs`);
+    if (!res.ok) throw new Error('Failed to fetch team jobs');
+    return res.json();
+  },
+
+  // Operational reports
+  getReports: async ({ from = '', to = '', sensor_id = '', team_id = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (from) params.append('from', from);
+    if (to) params.append('to', to);
+    if (sensor_id && sensor_id !== 'all') params.append('sensor_id', sensor_id);
+    if (team_id && team_id !== 'all') params.append('team_id', team_id);
+    const qs = params.toString();
+    const url = qs ? `${API_BASE}/reports?${qs}` : `${API_BASE}/reports`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch reports');
+    return res.json();
+  },
+
+  // Model performance comparison (CNN vs YOLO vs Fused)
+  getModelComparison: async () => {
+    const res = await fetch(`${API_BASE}/model-comparison`);
+    if (!res.ok) throw new Error('Failed to fetch model comparison metrics');
+    return res.json();
+  },
 };

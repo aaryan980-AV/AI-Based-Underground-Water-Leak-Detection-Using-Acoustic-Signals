@@ -5,9 +5,37 @@ from backend.models import Sensor, MaintenanceTeam, Alert, AlertEvent
 from backend.config import config
 
 
+def ensure_schema_migrations():
+    """Safely adds any missing columns to existing SQLite database without dropping tables."""
+    import sqlite3
+    db_path = "water_leak.db"
+    if not os.path.exists(db_path):
+        return
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(alerts)")
+    existing_cols = set(row[1] for row in cursor.fetchall())
+    new_cols = {
+        "cnn_confidence": "REAL",
+        "yolo_confidence": "REAL",
+        "fused_confidence": "REAL",
+        "yolo_boxes": "TEXT",
+        "spectrogram_image": "TEXT"
+    }
+    for col_name, col_type in new_cols.items():
+        if col_name not in existing_cols:
+            try:
+                cursor.execute(f"ALTER TABLE alerts ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
+    conn.commit()
+    conn.close()
+
+
 def seed_database(force=False):
     """Initializes tables and seeds initial sensors and maintenance teams across Mumbai."""
     Base.metadata.create_all(bind=engine)
+    ensure_schema_migrations()
     db = SessionLocal()
 
     if force:

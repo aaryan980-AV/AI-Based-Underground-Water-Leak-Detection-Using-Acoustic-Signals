@@ -36,24 +36,22 @@ def calculate_eta_minutes(distance_km: float, speed_kmh: float = None, overhead_
     return round(total_eta, 1)
 
 
-def find_nearest_available_team(
+def find_nearest_team(
     sensor_lat: float,
     sensor_lng: float,
     teams: List[Any]
 ) -> Tuple[Optional[Any], Optional[float], Optional[float]]:
     """
-    Finds the nearest available maintenance team from a list of teams.
+    Finds the nearest maintenance team by Haversine distance regardless of availability.
     Returns: (nearest_team, distance_km, eta_minutes)
-    If no team is available, returns (None, None, None).
     """
-    available_teams = [t for t in teams if getattr(t, "status", None) == "available"]
-    if not available_teams:
+    if not teams:
         return None, None, None
 
     nearest_team = None
     min_dist = float('inf')
 
-    for team in available_teams:
+    for team in teams:
         dist = haversine_distance(sensor_lat, sensor_lng, team.lat, team.lng)
         if dist < min_dist:
             min_dist = dist
@@ -64,3 +62,26 @@ def find_nearest_available_team(
         return nearest_team, min_dist, eta
 
     return None, None, None
+
+
+def find_nearest_available_team(
+    sensor_lat: float,
+    sensor_lng: float,
+    teams: List[Any],
+    fallback_to_all: bool = False
+) -> Tuple[Optional[Any], Optional[float], Optional[float]]:
+    """
+    Finds the nearest available maintenance team from a list of teams.
+    If no team is currently available and fallback_to_all is True, falls back to the
+    nearest team overall so an emergency dispatch is never left without a location.
+    Returns: (nearest_team, distance_km, eta_minutes)
+    If no team is available, returns (None, None, None).
+    """
+    available_teams = [t for t in teams if getattr(t, "status", None) == "available"]
+    if not available_teams:
+        if fallback_to_all and teams:
+            return find_nearest_team(sensor_lat, sensor_lng, teams)
+        return None, None, None
+
+    return find_nearest_team(sensor_lat, sensor_lng, available_teams)
+

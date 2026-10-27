@@ -1,25 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { 
-  Sliders, 
-  Plus, 
-  MapPin, 
-  Wrench, 
-  Radio, 
-  Check, 
-  Edit, 
-  Trash2, 
-  Phone, 
-  RefreshCw,
-  AlertCircle
-} from 'lucide-react';
 import { api } from '../utils/api';
+import { formatDate } from '../utils/format';
 
 export default function AdminPage({ onRefreshSensors }) {
   const [sensors, setSensors] = useState([]);
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('sensors');
+  const [activeFormTab, setActiveFormTab] = useState('sensors');
   
   // Selected map location for adding/editing
   const [clickedCoord, setClickedCoord] = useState(null);
@@ -50,17 +38,20 @@ export default function AdminPage({ onRefreshSensors }) {
     loadData();
   }, []);
 
-  // Initialize interactive admin map
+  // Initialize interactive admin map with CartoDB Positron tiles
   useEffect(() => {
     if (!adminMapRef.current || mapInstanceRef.current) return;
 
     const map = L.map(adminMapRef.current, {
       center: [19.0760, 72.8777],
       zoom: 12,
+      zoomControl: false,
     });
 
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
     }).addTo(map);
 
@@ -74,16 +65,16 @@ export default function AdminPage({ onRefreshSensors }) {
       setSensorForm(prev => ({ ...prev, lat: coord[0], lng: coord[1] }));
       setTeamForm(prev => ({ ...prev, lat: coord[0], lng: coord[1] }));
 
-      // Add or move selection pin
+      // Add or move selection pin in Primary Water Blue (#0b6fb8)
       if (clickMarkerRef.current) {
         clickMarkerRef.current.setLatLng(coord);
       } else {
         clickMarkerRef.current = L.marker(coord, {
           icon: L.divIcon({
             className: 'admin-click-pin',
-            html: '<div style="background:#0284c7; width:22px; height:22px; border-radius:50%; border:3px solid white; box-shadow:0 0 10px #0284c7;"></div>',
-            iconSize: [22, 22],
-            iconAnchor: [11, 11]
+            html: '<div style="background:#0b6fb8; width:18px; height:18px; border-radius:50%; border:2px solid white; box-shadow:0 1px 4px rgba(11,111,184,0.5);"></div>',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
           })
         }).addTo(map);
       }
@@ -99,14 +90,18 @@ export default function AdminPage({ onRefreshSensors }) {
 
   const handleCreateSensor = async (e) => {
     e.preventDefault();
+    if (!sensorForm.id || !sensorForm.name || !sensorForm.lat || !sensorForm.lng) {
+      alert("Please fill all sensor fields or click the map.");
+      return;
+    }
     try {
       await api.createSensor({
-        id: sensorForm.id,
-        name: sensorForm.name,
+        id: sensorForm.id.trim(),
+        name: sensorForm.name.trim(),
         lat: parseFloat(sensorForm.lat),
         lng: parseFloat(sensorForm.lng)
       });
-      setMessage({ type: 'success', text: `Sensor ${sensorForm.id} created successfully!` });
+      setMessage({ type: 'success', text: `Sensor ${sensorForm.id} provisioned.` });
       setSensorForm({ id: '', name: '', lat: '', lng: '' });
       loadData();
       if (onRefreshSensors) onRefreshSensors();
@@ -117,15 +112,19 @@ export default function AdminPage({ onRefreshSensors }) {
 
   const handleCreateTeam = async (e) => {
     e.preventDefault();
+    if (!teamForm.id || !teamForm.name || !teamForm.lat || !teamForm.lng || !teamForm.phone) {
+      alert("Please fill all team fields or click the map.");
+      return;
+    }
     try {
       await api.createTeam({
-        id: teamForm.id,
-        name: teamForm.name,
+        id: teamForm.id.trim(),
+        name: teamForm.name.trim(),
         lat: parseFloat(teamForm.lat),
         lng: parseFloat(teamForm.lng),
-        phone: teamForm.phone
+        phone: teamForm.phone.trim()
       });
-      setMessage({ type: 'success', text: `Team ${teamForm.id} registered successfully!` });
+      setMessage({ type: 'success', text: `Response Unit ${teamForm.id} registered.` });
       setTeamForm({ id: '', name: '', lat: '', lng: '', phone: '' });
       loadData();
     } catch (err) {
@@ -133,286 +132,269 @@ export default function AdminPage({ onRefreshSensors }) {
     }
   };
 
-  const toggleSensorStatus = async (sensor) => {
-    const nextStatus = sensor.status === 'offline' ? 'normal' : 'offline';
+  const handleDeleteSensor = async (id) => {
+    if (!window.confirm(`Delete sensor ${id}?`)) return;
     try {
-      await api.updateSensor(sensor.id, { status: nextStatus });
+      await api.deleteSensor(id);
       loadData();
       if (onRefreshSensors) onRefreshSensors();
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
+      alert("Delete failed: " + err.message);
     }
   };
 
-  const toggleTeamStatus = async (team) => {
-    const nextStatus = team.status === 'available' ? 'busy' : 'available';
+  const handleDeleteTeam = async (id) => {
+    if (!window.confirm(`Delete team ${id}?`)) return;
     try {
-      await api.updateTeam(team.id, { status: nextStatus });
+      await api.deleteTeam(id);
       loadData();
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
+      alert("Delete failed: " + err.message);
     }
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-300">
-      
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-2">
-          <Sliders className="w-7 h-7 text-cyan-400" />
-          <span>Municipal Asset & Sensor Administration</span>
-        </h1>
-        <p className="text-sm text-gray-400 mt-1">
-          Click anywhere on the map to extract precise geo-coordinates and provision new acoustic telemetry sensors or maintenance depot teams.
+    <div className="space-y-4 max-w-6xl">
+      {/* Page Header with Section Title Underline & Icon */}
+      <div className="pb-3 border-b border-[#dbe3ea]">
+        <div className="flex items-center gap-2 mb-1">
+          <svg className="w-5 h-5 text-[#0b6fb8]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <h2 className="section-title">
+            System Administration
+          </h2>
+        </div>
+        <p className="text-xs text-[#5b6b7b] mt-1">
+          Provision new acoustic telemetry sensors and maintenance teams. Click the map to populate coordinates.
         </p>
       </div>
 
       {message && (
-        <div className={`p-4 rounded-xl border flex items-center gap-2.5 text-sm ${
-          message.type === 'success' 
-            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
-            : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-        }`}>
-          {message.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-          <span>{message.text}</span>
+        <div
+          className={`p-2.5 rounded-md text-xs border ${
+            message.type === 'success'
+              ? 'bg-[#e8f6ee] border-[#2e9e5b] text-[#2e9e5b] font-semibold'
+              : 'bg-[#fdecec] border-[#d64545] text-[#d64545] font-semibold'
+          }`}
+        >
+          {message.text}
         </div>
       )}
 
-      {/* Map & Form Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
+      {/* Map and Form Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Interactive Coordinate Picker Map */}
-        <div className="lg:col-span-7 bg-gray-900/80 border border-white/10 rounded-2xl overflow-hidden p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-cyan-400" />
-              <span>Click Map to Select Target Coordinates</span>
-            </h3>
-            {clickedCoord && (
-              <span className="font-mono text-xs text-cyan-400 bg-cyan-950/60 px-2.5 py-1 rounded-md border border-cyan-800">
-                {clickedCoord[0]}, {clickedCoord[1]}
-              </span>
-            )}
+        <div className="lg:col-span-7 bg-white border border-[#dbe3ea] rounded-md p-3.5 space-y-2 shadow-xs">
+          <div className="flex items-center justify-between text-xs pb-1 border-b border-[#dbe3ea]">
+            <span className="font-semibold text-[#0a3d62]">
+              Location Picker (Click map)
+            </span>
+            <span className="text-[#0b6fb8] font-mono font-bold">
+              {clickedCoord ? `${clickedCoord[0]}, ${clickedCoord[1]}` : 'Click map to select location'}
+            </span>
           </div>
 
-          <div ref={adminMapRef} className="w-full h-80 rounded-xl overflow-hidden border border-white/5" />
-          <p className="text-[11px] text-gray-400">
-            Clicking on any street or utility corridor populates the latitude and longitude fields automatically.
-          </p>
+          <div ref={adminMapRef} className="w-full h-72 border border-[#dbe3ea] rounded-md overflow-hidden" />
+          <div className="text-[11px] text-[#5b6b7b]">
+            Clicking any point on the map automatically populates the Latitude and Longitude fields.
+          </div>
         </div>
 
         {/* Provisioning Forms */}
-        <div className="lg:col-span-5 bg-gray-900/80 border border-white/10 rounded-2xl p-5 space-y-4">
-          
-          <div className="flex items-center p-1 bg-gray-950 rounded-xl border border-white/5 text-xs font-bold">
+        <div className="lg:col-span-5 bg-white border border-[#dbe3ea] rounded-md p-3.5 space-y-3 shadow-xs">
+          <div className="flex items-center gap-1 border-b border-[#dbe3ea] pb-2">
             <button
-              onClick={() => setActiveTab('sensors')}
-              className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                activeTab === 'sensors' ? 'bg-cyan-500 text-gray-950 font-black' : 'text-gray-400 hover:text-white'
+              onClick={() => setActiveFormTab('sensors')}
+              className={`px-3 py-1 text-xs font-semibold rounded transition ${
+                activeFormTab === 'sensors'
+                  ? 'bg-[#0b6fb8] text-white shadow-xs'
+                  : 'text-[#5b6b7b] hover:text-[#0a3d62]'
               }`}
             >
-              <Radio className="w-3.5 h-3.5" />
-              <span>Add Sensor</span>
+              Add Sensor
             </button>
             <button
-              onClick={() => setActiveTab('teams')}
-              className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                activeTab === 'teams' ? 'bg-blue-600 text-white font-black' : 'text-gray-400 hover:text-white'
+              onClick={() => setActiveFormTab('teams')}
+              className={`px-3 py-1 text-xs font-semibold rounded transition ${
+                activeFormTab === 'teams'
+                  ? 'bg-[#0b6fb8] text-white shadow-xs'
+                  : 'text-[#5b6b7b] hover:text-[#0a3d62]'
               }`}
             >
-              <Wrench className="w-3.5 h-3.5" />
-              <span>Add Team</span>
+              Add Response Team
             </button>
           </div>
 
-          {activeTab === 'sensors' ? (
-            <form onSubmit={handleCreateSensor} className="space-y-3 text-xs">
+          {/* Sensor Provision Form */}
+          {activeFormTab === 'sensors' && (
+            <form onSubmit={handleCreateSensor} className="space-y-2 text-xs">
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Sensor ID (e.g. S-11):</label>
+                <label className="block text-[#5b6b7b] mb-1 font-medium">Sensor ID (e.g. S-13):</label>
                 <input
                   type="text"
                   required
-                  placeholder="S-11"
+                  placeholder="S-13"
                   value={sensorForm.id}
                   onChange={(e) => setSensorForm({ ...sensorForm, id: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-950 border border-white/10 rounded-xl text-white font-mono"
+                  className="w-full bg-white border border-[#dbe3ea] rounded p-1.5 text-xs text-[#1c2b39] focus:outline-none focus:border-[#0b6fb8]"
                 />
               </div>
 
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Pipe Name / Street Location:</label>
+                <label className="block text-[#5b6b7b] mb-1 font-medium">Location Name / Pipeline Node:</label>
                 <input
                   type="text"
                   required
-                  placeholder="Bandra West Linking Road Main Feeder"
+                  placeholder="Marine Drive Feeder Junction"
                   value={sensorForm.name}
                   onChange={(e) => setSensorForm({ ...sensorForm, name: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-950 border border-white/10 rounded-xl text-white"
+                  className="w-full bg-white border border-[#dbe3ea] rounded p-1.5 text-xs text-[#1c2b39] focus:outline-none focus:border-[#0b6fb8]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-gray-300 font-semibold mb-1">Latitude:</label>
+                  <label className="block text-[#5b6b7b] mb-1 font-medium">Latitude:</label>
                   <input
                     type="number"
-                    step="0.00001"
+                    step="0.0001"
                     required
-                    placeholder="19.0760"
                     value={sensorForm.lat}
                     onChange={(e) => setSensorForm({ ...sensorForm, lat: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-950 border border-white/10 rounded-xl text-white font-mono"
+                    className="w-full bg-white border border-[#dbe3ea] rounded p-1.5 text-xs text-[#1c2b39] focus:outline-none focus:border-[#0b6fb8]"
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-300 font-semibold mb-1">Longitude:</label>
+                  <label className="block text-[#5b6b7b] mb-1 font-medium">Longitude:</label>
                   <input
                     type="number"
-                    step="0.00001"
+                    step="0.0001"
                     required
-                    placeholder="72.8777"
                     value={sensorForm.lng}
                     onChange={(e) => setSensorForm({ ...sensorForm, lng: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-950 border border-white/10 rounded-xl text-white font-mono"
+                    className="w-full bg-white border border-[#dbe3ea] rounded p-1.5 text-xs text-[#1c2b39] focus:outline-none focus:border-[#0b6fb8]"
                   />
                 </div>
               </div>
 
-              <button
-                type="submit"
-                className="w-full py-2.5 mt-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-gray-950 font-bold transition flex items-center justify-center gap-1.5 shadow-lg shadow-cyan-500/20"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Register Pipe Sensor</span>
+              <button type="submit" className="btn-primary w-full mt-2 py-1.5">
+                Save Sensor Node
               </button>
             </form>
-          ) : (
-            <form onSubmit={handleCreateTeam} className="space-y-3 text-xs">
+          )}
+
+          {/* Team Registration Form */}
+          {activeFormTab === 'teams' && (
+            <form onSubmit={handleCreateTeam} className="space-y-2 text-xs">
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Team ID (e.g. TEAM-05):</label>
+                <label className="block text-[#5b6b7b] mb-1 font-medium">Team ID (e.g. TEAM-05):</label>
                 <input
                   type="text"
                   required
                   placeholder="TEAM-05"
                   value={teamForm.id}
                   onChange={(e) => setTeamForm({ ...teamForm, id: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-950 border border-white/10 rounded-xl text-white font-mono"
+                  className="w-full bg-white border border-[#dbe3ea] rounded p-1.5 text-xs text-[#1c2b39] focus:outline-none focus:border-[#0b6fb8]"
                 />
               </div>
 
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Team Name / Unit:</label>
+                <label className="block text-[#5b6b7b] mb-1 font-medium">Team Name / Division:</label>
                 <input
                   type="text"
                   required
-                  placeholder="BMC Hydraulic Unit - Kurla East"
+                  placeholder="Bandra Emergency Valve Unit"
                   value={teamForm.name}
                   onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-950 border border-white/10 rounded-xl text-white"
+                  className="w-full bg-white border border-[#dbe3ea] rounded p-1.5 text-xs text-[#1c2b39] focus:outline-none focus:border-[#0b6fb8]"
                 />
               </div>
 
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Dispatch Phone:</label>
+                <label className="block text-[#5b6b7b] mb-1 font-medium">Phone Number:</label>
                 <input
                   type="text"
                   required
-                  placeholder="+91 22 2650 3300"
+                  placeholder="+91 22 2650 1200"
                   value={teamForm.phone}
                   onChange={(e) => setTeamForm({ ...teamForm, phone: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-950 border border-white/10 rounded-xl text-white font-mono"
+                  className="w-full bg-white border border-[#dbe3ea] rounded p-1.5 text-xs text-[#1c2b39] focus:outline-none focus:border-[#0b6fb8]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-gray-300 font-semibold mb-1">Latitude:</label>
+                  <label className="block text-[#5b6b7b] mb-1 font-medium">Latitude:</label>
                   <input
                     type="number"
-                    step="0.00001"
+                    step="0.0001"
                     required
-                    placeholder="19.0760"
                     value={teamForm.lat}
                     onChange={(e) => setTeamForm({ ...teamForm, lat: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-950 border border-white/10 rounded-xl text-white font-mono"
+                    className="w-full bg-white border border-[#dbe3ea] rounded p-1.5 text-xs text-[#1c2b39] focus:outline-none focus:border-[#0b6fb8]"
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-300 font-semibold mb-1">Longitude:</label>
+                  <label className="block text-[#5b6b7b] mb-1 font-medium">Longitude:</label>
                   <input
                     type="number"
-                    step="0.00001"
+                    step="0.0001"
                     required
-                    placeholder="72.8777"
                     value={teamForm.lng}
                     onChange={(e) => setTeamForm({ ...teamForm, lng: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-950 border border-white/10 rounded-xl text-white font-mono"
+                    className="w-full bg-white border border-[#dbe3ea] rounded p-1.5 text-xs text-[#1c2b39] focus:outline-none focus:border-[#0b6fb8]"
                   />
                 </div>
               </div>
 
-              <button
-                type="submit"
-                className="w-full py-2.5 mt-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition flex items-center justify-center gap-1.5 shadow-lg shadow-blue-600/20"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Register Maintenance Team</span>
+              <button type="submit" className="btn-primary w-full mt-2 py-1.5">
+                Save Response Team
               </button>
             </form>
           )}
-
         </div>
-
       </div>
 
-      {/* Asset Inventories Tables */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Sensors Table */}
-        <div className="bg-gray-900/80 border border-white/10 rounded-2xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <Radio className="w-4 h-4 text-cyan-400" />
-              <span>Sensors Inventory ({sensors.length})</span>
-            </h3>
-            <button onClick={loadData} className="text-gray-400 hover:text-white transition">
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
+      {/* Tables of Existing Assets */}
+      <div className="space-y-4 pt-2">
+        <div className="border border-[#dbe3ea] rounded-md bg-white shadow-xs">
+          <div className="p-3 bg-[#f4f8fb] border-b border-[#dbe3ea] font-bold text-xs text-[#0a3d62]">
+            Active Sensors ({sensors.length})
           </div>
-
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="table-compact">
               <thead>
-                <tr className="border-b border-white/10 text-gray-400">
-                  <th className="pb-2">ID</th>
-                  <th className="pb-2">Name</th>
-                  <th className="pb-2">Coords</th>
-                  <th className="pb-2">Status</th>
-                  <th className="pb-2 text-right">Action</th>
+                <tr>
+                  <th>ID</th>
+                  <th>Location Name</th>
+                  <th>Coordinates</th>
+                  <th>Status</th>
+                  <th>Last Reading</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody>
                 {sensors.map((s) => (
-                  <tr key={s.id} className="hover:bg-white/5 transition">
-                    <td className="py-2.5 font-mono text-cyan-400 font-bold">{s.id}</td>
-                    <td className="py-2.5 text-gray-200 font-medium truncate max-w-[140px]">{s.name}</td>
-                    <td className="py-2.5 font-mono text-gray-400 text-[11px]">{s.lat.toFixed(3)}, {s.lng.toFixed(3)}</td>
-                    <td className="py-2.5">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        s.status === 'leak' ? 'bg-rose-500/20 text-rose-300' :
-                        s.status === 'offline' ? 'bg-gray-800 text-gray-400' :
-                        'bg-emerald-500/20 text-emerald-300'
-                      }`}>
+                  <tr key={s.id}>
+                    <td className="font-mono font-semibold text-[#0b6fb8]">{s.id}</td>
+                    <td className="font-medium text-[#1c2b39]">{s.name}</td>
+                    <td className="font-mono text-xs text-[#5b6b7b]">
+                      {s.lat.toFixed(4)}, {s.lng.toFixed(4)}
+                    </td>
+                    <td>
+                      <span className={`badge-status ${s.status === 'leak' ? 'badge-leak' : s.status === 'offline' ? 'badge-offline' : 'badge-normal'}`}>
                         {s.status}
                       </span>
                     </td>
-                    <td className="py-2.5 text-right">
+                    <td className="text-[#5b6b7b] text-xs">{s.last_reading_at ? formatDate(s.last_reading_at) : 'N/A'}</td>
+                    <td>
                       <button
-                        onClick={() => toggleSensorStatus(s)}
-                        className="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-[10px] font-semibold transition"
+                        onClick={() => handleDeleteSensor(s.id)}
+                        className="text-[#d64545] hover:underline text-xs font-semibold"
                       >
-                        {s.status === 'offline' ? 'Bring Online' : 'Set Offline'}
+                        Delete
                       </button>
                     </td>
                   </tr>
@@ -422,48 +404,42 @@ export default function AdminPage({ onRefreshSensors }) {
           </div>
         </div>
 
-        {/* Maintenance Teams Table */}
-        <div className="bg-gray-900/80 border border-white/10 rounded-2xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <Wrench className="w-4 h-4 text-blue-400" />
-              <span>Response Teams Inventory ({teams.length})</span>
-            </h3>
-            <button onClick={loadData} className="text-gray-400 hover:text-white transition">
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
+        <div className="border border-[#dbe3ea] rounded-md bg-white shadow-xs">
+          <div className="p-3 bg-[#f4f8fb] border-b border-[#dbe3ea] font-bold text-xs text-[#0a3d62]">
+            Registered Response Units ({teams.length})
           </div>
-
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="table-compact">
               <thead>
-                <tr className="border-b border-white/10 text-gray-400">
-                  <th className="pb-2">ID</th>
-                  <th className="pb-2">Name</th>
-                  <th className="pb-2">Phone</th>
-                  <th className="pb-2">Status</th>
-                  <th className="pb-2 text-right">Action</th>
+                <tr>
+                  <th>ID</th>
+                  <th>Team Name</th>
+                  <th>Phone</th>
+                  <th>Coordinates</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody>
                 {teams.map((t) => (
-                  <tr key={t.id} className="hover:bg-white/5 transition">
-                    <td className="py-2.5 font-mono text-blue-400 font-bold">{t.id}</td>
-                    <td className="py-2.5 text-gray-200 font-medium truncate max-w-[140px]">{t.name}</td>
-                    <td className="py-2.5 font-mono text-gray-400 text-[11px]">{t.phone}</td>
-                    <td className="py-2.5">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        t.status === 'busy' ? 'bg-amber-500/20 text-amber-300' : 'bg-blue-500/20 text-blue-300'
-                      }`}>
+                  <tr key={t.id}>
+                    <td className="font-mono font-semibold text-[#0b6fb8]">{t.id}</td>
+                    <td className="font-medium text-[#1c2b39]">{t.name}</td>
+                    <td className="font-mono text-xs text-[#5b6b7b]">{t.phone}</td>
+                    <td className="font-mono text-xs text-[#5b6b7b]">
+                      {t.lat.toFixed(4)}, {t.lng.toFixed(4)}
+                    </td>
+                    <td>
+                      <span className={`badge-status ${t.status === 'available' ? 'badge-workdone' : 'badge-onwork'}`}>
                         {t.status}
                       </span>
                     </td>
-                    <td className="py-2.5 text-right">
+                    <td>
                       <button
-                        onClick={() => toggleTeamStatus(t)}
-                        className="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-[10px] font-semibold transition"
+                        onClick={() => handleDeleteTeam(t.id)}
+                        className="text-[#d64545] hover:underline text-xs font-semibold"
                       >
-                        {t.status === 'busy' ? 'Make Available' : 'Set Busy'}
+                        Delete
                       </button>
                     </td>
                   </tr>
@@ -472,9 +448,8 @@ export default function AdminPage({ onRefreshSensors }) {
             </table>
           </div>
         </div>
-
       </div>
-
     </div>
   );
 }
+

@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import AlertBanner from './components/AlertBanner';
 import DashboardMap from './components/DashboardMap';
 import AlertPanel from './components/AlertPanel';
-import TelemetryPage from './pages/TelemetryPage';
-import FleetPage from './pages/FleetPage';
+import AlertsPage from './pages/AlertsPage';
+import SensorsPage from './pages/SensorsPage';
+import TeamsPage from './pages/TeamsPage';
+import ReportsPage from './pages/ReportsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import ModelPerformancePage from './pages/ModelPerformancePage';
 import AdminPage from './pages/AdminPage';
 import { api } from './utils/api';
 import { soundAlert } from './utils/audioAlert';
@@ -37,11 +41,7 @@ export default function App() {
       setAlerts(alertList);
       setSimulatorActive(!!simStatus.simulator_active);
 
-      // Auto-focus first active alert if available
-      const firstActive = alertList.find(a => a.status !== 'cleared');
-      if (firstActive) {
-        setFocusedAlert(firstActive);
-      }
+      // Keep full city overview on initial load (users can click 'Locate' on any alert to focus)
     } catch (e) {
       console.error("Initial data load error:", e);
     }
@@ -65,7 +65,6 @@ export default function App() {
 
         socket.onopen = () => {
           setWsConnected(true);
-          console.log("[WebSocket] Real-time monitoring feed connected.");
         };
 
         socket.onmessage = (event) => {
@@ -79,12 +78,10 @@ export default function App() {
 
         socket.onclose = () => {
           setWsConnected(false);
-          console.log("[WebSocket] Feed disconnected. Retrying in 3s...");
           reconnectTimer = setTimeout(connectWebSocket, 3000);
         };
 
-        socket.onerror = (err) => {
-          console.warn("[WebSocket] Error:", err);
+        socket.onerror = () => {
           socket.close();
         };
 
@@ -111,7 +108,7 @@ export default function App() {
     if (type === 'alert_created') {
       soundAlert.playAlertSound();
       setAlertBanner({
-        message: data.banner_message || `LEAK DETECTED at Sensor ${data.alert?.sensor_id}`,
+        message: data.banner_message || `Leak detected at Sensor ${data.alert?.sensor_id}`,
         alert: data.alert
       });
       setFocusedAlert(data.alert);
@@ -123,7 +120,6 @@ export default function App() {
     } else if (type === 'team_updated' || type === 'team_created') {
       api.getTeams().then(setTeams).catch(console.error);
     } else if (type === 'reading_received') {
-      // update sensor last reading quietly
       setSensors(prev => prev.map(s => {
         if (s.id === data.sensor_id) {
           return { ...s, last_reading_at: new Date().toISOString() };
@@ -138,7 +134,6 @@ export default function App() {
     try {
       const updated = await api.updateAlertStatus(alertId, nextStatus);
       setAlerts(prev => prev.map(a => a.id === alertId ? updated : a));
-      // Refresh sensors and teams to reflect cleared status
       const [sList, tList] = await Promise.all([api.getSensors(), api.getTeams()]);
       setSensors(sList);
       setTeams(tList);
@@ -169,100 +164,198 @@ export default function App() {
     }
   };
 
+  // Toggle team availability
+  const handleToggleTeamStatus = async (team) => {
+    const next = team.status === 'available' ? 'busy' : 'available';
+    try {
+      await api.updateTeam(team.id, { status: next });
+      setTeams(prev => prev.map(t => t.id === team.id ? { ...t, status: next } : t));
+    } catch (e) {
+      alert("Failed to toggle team status: " + e.message);
+    }
+  };
+
+  // Select sensor on map and switch to dashboard
+  const handleSelectSensorOnMap = (sensor) => {
+    setActiveTab('dashboard');
+    const alertMatch = alerts.find(a => a.sensor_id === sensor.id && a.status !== 'cleared');
+    if (alertMatch) {
+      setFocusedAlert(alertMatch);
+    } else {
+      setFocusedAlert({
+        id: null,
+        sensor_id: sensor.id,
+        sensor_name: sensor.name,
+        sensor_lat: sensor.lat,
+        sensor_lng: sensor.lng,
+      });
+    }
+  };
+
   const activeAlertCount = alerts.filter(a => a.status !== 'cleared').length;
+  const teamsAvailableCount = teams.filter(t => t.status === 'available').length;
+
+  const alertsTodayCount = alerts.filter(a => {
+    if (!a.created_at) return false;
+    const alertDate = new Date(a.created_at);
+    const now = new Date();
+    return alertDate.toDateString() === now.toDateString();
+  }).length;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0b0f19] text-gray-100 selection:bg-cyan-500 selection:text-black">
-      
-      {/* Left Vertical Navigation Sidebar */}
-      <Sidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        wsConnected={wsConnected}
-        simulatorActive={simulatorActive}
-        onToggleSimulator={handleToggleSimulator}
-        onTriggerLeak={handleTriggerLeak}
-        sensors={sensors}
-        activeAlertCount={activeAlertCount}
-      />
+    <div className="flex flex-col h-screen overflow-hidden bg-white text-[#1f2933]">
+      {/* Plain White Header Bar */}
+      <Header wsConnected={wsConnected} />
 
-      {/* Main Scrollable Content Area */}
-      <div className="flex-1 flex flex-col h-screen overflow-y-auto min-w-0">
-        
-        {/* Emergency Alert Banner */}
-        <AlertBanner
-          banner={alertBanner}
-          onDismiss={() => setAlertBanner(null)}
-          onFocusAlert={(alert) => {
-            setFocusedAlert(alert);
-            setActiveTab('dashboard');
-          }}
+      {/* Main Body with Sidebar and Content */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Left Sidebar (220px) */}
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          simulatorActive={simulatorActive}
+          onToggleSimulator={handleToggleSimulator}
+          onTriggerLeak={handleTriggerLeak}
+          sensors={sensors}
+          activeAlertCount={activeAlertCount}
         />
 
-        {/* Main View Area */}
-        <main className="flex-1 p-3 sm:p-4 lg:p-6 max-w-[1720px] w-full mx-auto">
-          {activeTab === 'dashboard' && (
-            <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 min-h-[750px]">
-              
-              {/* Map Area */}
-              <div className="lg:col-span-8 flex flex-col h-full min-h-[500px]">
-                <DashboardMap
-                  sensors={sensors}
-                  teams={teams}
-                  alerts={alerts}
-                  focusedAlert={focusedAlert}
-                  onSelectSensor={(sensor) => {
-                    const alertMatch = alerts.find(a => a.sensor_id === sensor.id && a.status !== 'cleared');
-                    if (alertMatch) {
-                      setFocusedAlert(alertMatch);
-                    }
-                  }}
-                />
-              </div>
+        {/* Content Container */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-white">
+          {/* Toast Alert Banner */}
+          <AlertBanner
+            banner={alertBanner}
+            onDismiss={() => setAlertBanner(null)}
+            onFocusAlert={(alert) => {
+              setFocusedAlert(alert);
+              setActiveTab('dashboard');
+            }}
+          />
 
-              {/* Right Alert Panel Feed */}
-              <div className="lg:col-span-4 flex flex-col h-full min-h-[500px]">
-                <AlertPanel
-                  alerts={alerts}
-                  activeFilter={activeAlertFilter}
-                  setActiveFilter={setActiveAlertFilter}
-                  onUpdateStatus={handleUpdateStatus}
-                  onFocusAlert={(alert) => setFocusedAlert(alert)}
-                />
-              </div>
+          {/* Main Views */}
+          <main className="flex-1 p-4 lg:p-5 max-w-[1720px] w-full mx-auto">
+            {activeTab === 'dashboard' && (
+              <div className="space-y-4 flex flex-col h-full">
+                {/* Row of 4 Colored Stat Boxes */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
+                  <div className="stat-box stat-box-blue">
+                    <div className="stat-box-label">Total sensors</div>
+                    <div className="stat-box-value-container">
+                      <div className="stat-box-value">{sensors.length}</div>
+                    </div>
+                  </div>
 
+                  <div className="stat-box stat-box-red">
+                    <div className="stat-box-label">Active leaks</div>
+                    <div className="stat-box-value-container">
+                      <div className="stat-box-value">{activeAlertCount}</div>
+                    </div>
+                  </div>
+
+                  <div className="stat-box stat-box-teal">
+                    <div className="stat-box-label">Teams available</div>
+                    <div className="stat-box-value-container">
+                      <div className="stat-box-value">{teamsAvailableCount}</div>
+                    </div>
+                  </div>
+
+                  <div className="stat-box stat-box-amber">
+                    <div className="stat-box-label">Alerts today</div>
+                    <div className="stat-box-value-container">
+                      <div className="stat-box-value">{alertsTodayCount}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Below: Map (65%) and Alert Panel (35%), Same Height */}
+                <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-[580px]">
+                  {/* Map: 65% width (col-span-8 of 12 approx 66.6%) */}
+                  <div className="lg:col-span-8 flex flex-col h-full min-h-[480px]">
+                    <DashboardMap
+                      sensors={sensors}
+                      teams={teams}
+                      alerts={alerts}
+                      focusedAlert={focusedAlert}
+                      onSelectSensor={(sensor) => {
+                        const alertMatch = alerts.find(a => a.sensor_id === sensor.id && a.status !== 'cleared');
+                        if (alertMatch) {
+                          setFocusedAlert(alertMatch);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {/* Alert Panel: 35% width (col-span-4 of 12 approx 33.3%) */}
+                  <div className="lg:col-span-4 flex flex-col h-full min-h-[480px]">
+                    <AlertPanel
+                      alerts={alerts}
+                      teams={teams}
+                      activeFilter={activeAlertFilter}
+                      setActiveFilter={setActiveAlertFilter}
+                      onUpdateStatus={handleUpdateStatus}
+                      onFocusAlert={(alert) => setFocusedAlert(alert)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'alerts' && (
+              <AlertsPage
+                alerts={alerts}
+                sensors={sensors}
+                teams={teams}
+                onUpdateStatus={handleUpdateStatus}
+                onTriggerLeak={handleTriggerLeak}
+                onToggleTeamStatus={handleToggleTeamStatus}
+              />
+            )}
+
+            {activeTab === 'sensors' && (
+              <SensorsPage
+                sensors={sensors}
+                onSelectSensorOnMap={handleSelectSensorOnMap}
+              />
+            )}
+
+            {activeTab === 'teams' && (
+              <TeamsPage
+                teams={teams}
+                onRefreshTeams={loadInitialData}
+              />
+            )}
+
+            {activeTab === 'reports' && (
+              <ReportsPage
+                sensors={sensors}
+                teams={teams}
+              />
+            )}
+
+            {activeTab === 'analytics' && (
+              <AnalyticsPage onNavigate={setActiveTab} />
+            )}
+
+            {activeTab === 'model_performance' && (
+              <ModelPerformancePage />
+            )}
+
+            {activeTab === 'admin' && (
+              <AdminPage onRefreshSensors={loadInitialData} />
+            )}
+          </main>
+
+          {/* Simple Bottom Status Bar */}
+          <footer className="border-t border-[#dbe3ea] py-2.5 px-5 text-xs text-[#5b6b7b] bg-[#f4f8fb] flex items-center justify-between shrink-0">
+            <span className="font-semibold text-[#0a3d62]">Water Leak Monitoring System v1.0</span>
+            <div className="flex items-center gap-4 text-[#5b6b7b]">
+              <span>Monitored sensors: <strong className="text-[#0b6fb8] font-mono">{sensors.length}</strong></span>
+              <span>Available teams: <strong className="text-[#139a9a] font-mono">{teamsAvailableCount}/{teams.length}</strong></span>
+              <span>Active leaks: <strong className={`font-mono ${activeAlertCount > 0 ? 'text-[#d64545]' : 'text-[#2e9e5b]'}`}>{activeAlertCount}</strong></span>
             </div>
-          )}
-
-          {activeTab === 'telemetry' && (
-            <TelemetryPage sensors={sensors} onTriggerLeak={handleTriggerLeak} />
-          )}
-
-          {activeTab === 'fleet' && (
-            <FleetPage teams={teams} onRefreshTeams={loadInitialData} />
-          )}
-
-          {activeTab === 'analytics' && <AnalyticsPage />}
-
-          {activeTab === 'admin' && <AdminPage onRefreshSensors={loadInitialData} />}
-        </main>
-
-        {/* Footer Status Bar */}
-        <footer className="border-t border-white/5 py-3 px-6 text-xs text-gray-500 bg-gray-950/80 flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold text-gray-400">AQUAGUARD AI — Mumbai Municipal Grid (BMC)</span>
-            <span>•</span>
-            <span>FastAPI + PyTorch CNN + Leaflet</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span>Active Nodes: {sensors.length}</span>
-            <span>Response Units: {teams.length}</span>
-            <span>Live Alerts: {activeAlertCount}</span>
-          </div>
-        </footer>
-
+          </footer>
+        </div>
       </div>
-
     </div>
   );
 }

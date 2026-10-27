@@ -73,3 +73,9 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# YOLO & Machine Learning Temporary Runs
+runs/
+ml/runs/
+*.cache
+yolov8n.pt
