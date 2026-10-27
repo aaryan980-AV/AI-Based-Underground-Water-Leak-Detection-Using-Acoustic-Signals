@@ -9,7 +9,6 @@ import SensorsPage from './pages/SensorsPage';
 import TeamsPage from './pages/TeamsPage';
 import ReportsPage from './pages/ReportsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
-import ModelPerformancePage from './pages/ModelPerformancePage';
 import AdminPage from './pages/AdminPage';
 import { api } from './utils/api';
 import { soundAlert } from './utils/audioAlert';
@@ -334,10 +333,6 @@ export default function App() {
 
             {activeTab === 'analytics' && (
               <AnalyticsPage onNavigate={setActiveTab} />
-            )}
-
-            {activeTab === 'model_performance' && (
-              <ModelPerformancePage />
             )}
 
             {activeTab === 'admin' && (
