@@ -206,24 +206,6 @@ export default function AlertPanel({
                   </div>
                 </div>
 
-                {/* Spectrogram with YOLO Bounding Boxes */}
-                {alert.spectrogram_image && (
-                  <div className="mb-2.5 rounded border border-[#dbe3ea] overflow-hidden bg-slate-900">
-                    <div className="flex items-center justify-between px-2 py-1 bg-[#1e293b] text-[10px] text-[#94a3b8]">
-                      <span className="font-semibold text-white">Mel Spectrogram & YOLO Box</span>
-                      <span className="font-mono text-[#38bdf8]">
-                        {alert.yolo_detections?.length || 0} box(es)
-                      </span>
-                    </div>
-                    <img
-                      src={alert.spectrogram_image}
-                      alt={`Spectrogram Alert #${alert.id}`}
-                      className="w-full h-auto object-contain block max-h-[140px] mx-auto"
-                      loading="lazy"
-                    />
-                  </div>
-                )}
-
                 {/* Assigned Team & Dispatch Info */}
                 {(() => {
                   const effectiveTeam = getEffectiveTeam(alert);
