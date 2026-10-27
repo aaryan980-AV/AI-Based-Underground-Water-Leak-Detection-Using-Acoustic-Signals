@@ -138,13 +138,12 @@ export default function SensorsPage({ sensors = [], onSelectSensorOnMap }) {
                 <th>Status</th>
                 <th>Last Reading</th>
                 <th className="text-center">Total Alerts</th>
-                <th className="text-right">Last Conf. %</th>
               </tr>
             </thead>
             <tbody>
               {filteredSensors.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-[#5b6b7b]">
+                  <td colSpan={6} className="text-center py-8 text-[#5b6b7b]">
                     No sensors match search criteria
                   </td>
                 </tr>
@@ -182,11 +181,6 @@ export default function SensorsPage({ sensors = [], onSelectSensorOnMap }) {
                       </td>
                       <td className="text-center font-mono font-medium">
                         {s.total_alerts ?? 0}
-                      </td>
-                      <td className="text-right font-mono font-bold text-[#0b6fb8]">
-                        {s.last_confidence !== null && s.last_confidence !== undefined
-                          ? `${s.last_confidence}%`
-                          : '-'}
                       </td>
                     </tr>
                   );
